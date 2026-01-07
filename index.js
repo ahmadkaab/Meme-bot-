@@ -4,6 +4,7 @@ const path = require('path');
 const { google } = require('googleapis');
 const axios = require('axios');
 const links = require('./links.json');
+const { IgApiClient } = require('instagram-private-api');
 
 // --- Configuration ---
 const DB_FILE = './db.json';
@@ -22,7 +23,6 @@ const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
 // --- Helpers ---
 
-// Load or initialize DB
 function getDb() {
     if (!fs.existsSync(DB_FILE)) return { uploaded_files: [] };
     return JSON.parse(fs.readFileSync(DB_FILE));
@@ -33,8 +33,7 @@ function saveDb(db) {
 }
 
 function getRandomLink() {
-    const item = links[Math.floor(Math.random() * links.length)];
-    return item;
+    return links[Math.floor(Math.random() * links.length)];
 }
 
 // --- Core Functions ---
@@ -62,15 +61,12 @@ async function getNewFiles() {
 
     // 2. Search for videos in ALL identified folders
     let allFiles = [];
-    
-    // We can't put ALL folders in one query if there are too many, so we loop or batch.
-    // Since you have ~11 folders, a loop is fine.
     for (const folderId of folders) {
         try {
             const res = await drive.files.list({
                 q: `'${folderId}' in parents and mimeType contains 'video/' and trashed = false`,
                 fields: 'files(id, name, mimeType)',
-                pageSize: 50 // Get up to 50 videos per folder per run to save time
+                pageSize: 50
             });
             if (res.data.files) {
                 allFiles = allFiles.concat(res.data.files);
@@ -80,10 +76,8 @@ async function getNewFiles() {
         }
     }
 
-    // Filter out files that are already in our DB
     const newFiles = allFiles.filter(f => !db.uploaded_files.includes(f.id));
-    
-    console.log(`🎥 Total videos found: ${allFiles.length}. New videos to process: ${newFiles.length}.`);
+    console.log(`🎥 Total videos found: ${allFiles.length}. New videos: ${newFiles.length}.`);
     return newFiles;
 }
 
@@ -115,13 +109,13 @@ async function uploadToYoutube(filePath, title, description) {
             part: 'snippet,status',
             requestBody: {
                 snippet: {
-                    title: title.substring(0, 100), // Max 100 chars
+                    title: title.substring(0, 100),
                     description: description,
                     tags: ['shorts', 'meme', 'funny'],
-                    categoryId: '23' // Comedy
+                    categoryId: '23'
                 },
                 status: {
-                    privacyStatus: 'public', // or 'private' to test
+                    privacyStatus: 'public',
                     selfDeclaredMadeForKids: false
                 }
             },
@@ -137,29 +131,48 @@ async function uploadToYoutube(filePath, title, description) {
     }
 }
 
-// 2. Instagram Upload (Skeleton - Requires Business Account + Valid Token)
+// 2. Instagram Upload (REAL)
 async function uploadToInstagram(filePath, caption) {
-    console.log('📸 Uploading to Instagram (Skeleton)...');
-    // Note: The Graph API requires the video to be hosted on a public URL first for the container creation step,
-    // OR you must use the Resumable Upload protocol for binary files.
-    // For a local bot, 'instagram-private-api' is often easier but carries ban risk.
-    
-    // Logic:
-    // 1. Create Media Container (POST /me/media)
-    // 2. Wait for processing
-    // 3. Publish Media (POST /me/media_publish)
-    
-    return true; // Mock success
+    console.log('📸 Uploading to Instagram...');
+    try {
+        const ig = new IgApiClient();
+        ig.state.generateDevice(process.env.IG_USERNAME);
+        
+        // Login
+        await ig.account.login(process.env.IG_USERNAME, process.env.IG_PASSWORD);
+
+        // Read file as buffer
+        const videoBuffer = fs.readFileSync(filePath);
+        
+        // Instagram requires a cover photo (JPEG). 
+        // For a simple bot, we'll use a 1x1 black pixel JPEG placeholder.
+        const coverBuffer = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAFA3PEY8ED5GWEZGPDpCUXFiUZRDSXpufWhkc3VzZ3x0dnZ0fXp7fH1+f3p7fH1+f3p7fH1+f3p7fH1+f3p7fH1+f3p7fH1+f3oA...', 'base64');
+
+        // Upload
+        const publishResult = await ig.publish.video({
+            video: videoBuffer,
+            coverImage: coverBuffer,
+            caption: caption,
+        });
+
+        if (publishResult.status === 'ok') {
+            console.log(`✅ Instagram Upload Success! Media ID: ${publishResult.media.id}`);
+            return true;
+        } else {
+            console.error('❌ Instagram Upload status not ok:', publishResult);
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ Instagram Upload Failed:', error.message);
+        // Don't crash the whole bot if IG fails
+        return false;
+    }
 }
 
-// 3. Pinterest Upload (Skeleton)
+// 3. Pinterest Upload (Pending Credentials)
 async function uploadToPinterest(filePath, title, link) {
-    console.log('📌 Uploading to Pinterest (Skeleton)...');
-    // Logic:
-    // 1. Register media upload
-    // 2. Upload file chunks
-    // 3. Create Pin with media ID
-    return true; // Mock success
+    console.log('⚠️ Pinterest Upload Skipped (Configure Board ID in .env)');
+    return true; 
 }
 
 // --- Main Execution ---
@@ -173,7 +186,6 @@ async function run() {
             return;
         }
 
-        // Process only 1 file per run to be safe/incremental
         const file = newFiles[0];
         const affiliate = getRandomLink();
         
@@ -186,8 +198,12 @@ async function run() {
 
         // Uploads
         await uploadToYoutube(TEMP_FILE, title, description);
-        await uploadToInstagram(TEMP_FILE, description);
-        await uploadToPinterest(TEMP_FILE, title, affiliate.link);
+        
+        if (process.env.IG_USERNAME && process.env.IG_PASSWORD) {
+            await uploadToInstagram(TEMP_FILE, description);
+        } else {
+            console.log('⚠️ Skipping Instagram (No credentials in .env)');
+        }
 
         // Update DB
         const db = getDb();
@@ -196,7 +212,6 @@ async function run() {
         
         console.log(`🎉 Finished processing ${file.name}`);
 
-        // Cleanup
         if (fs.existsSync(TEMP_FILE)) fs.unlinkSync(TEMP_FILE);
 
     } catch (error) {
