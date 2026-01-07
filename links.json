@@ -1,10 +1,22 @@
 [
   {
-    "link": "https://amzn.to/example1",
-    "label": "Cool Gadget"
+    "link": "https://www.amazon.com/dp/B07G3P5W71",
+    "label": "Funny Chicken Light"
   },
   {
-    "link": "https://amzn.to/example2",
-    "label": "Funny Gift"
+    "link": "https://www.amazon.com/dp/B07MFM8F6V",
+    "label": "Useless Box"
+  },
+  {
+    "link": "https://www.amazon.com/dp/B08F2W9C4R",
+    "label": "Tiny Violin"
+  },
+  {
+    "link": "https://www.amazon.com/dp/B078N29D7Z",
+    "label": "Toilet Golf"
+  },
+  {
+    "link": "https://www.amazon.com/dp/B071DQ3X3P",
+    "label": "Screaming Goat"
   }
 ]
