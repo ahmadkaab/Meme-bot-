@@ -2,15 +2,17 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
-const axios = require('axios');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const ffmpeg = require('fluent-ffmpeg');
 const links = require('./links.json');
-const { IgApiClient } = require('instagram-private-api');
 
 // --- Configuration ---
 const DB_FILE = './db.json';
 const TEMP_FILE = './temp_video.mp4';
+const TEMP_FRAME = './temp_frame.jpg';
+const AFFILIATE_TAG = 'meme067-21';
 
-// Initialize Google Auth (Drive & YouTube)
+// Initialize Google Auth
 const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
@@ -20,6 +22,9 @@ oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN })
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+
+// Initialize Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // --- Helpers ---
 
@@ -33,7 +38,70 @@ function saveDb(db) {
 }
 
 function getRandomLink() {
-    return links[Math.floor(Math.random() * links.length)];
+    const item = links[Math.floor(Math.random() * links.length)];
+    // Auto-append affiliate tag if not present
+    let link = item.link;
+    if (link.includes('amazon') && !link.includes('tag=')) {
+        link += (link.includes('?') ? '&' : '?') + `tag=${AFFILIATE_TAG}`;
+    }
+    return { ...item, link };
+}
+
+// --- AI Functions ---
+
+async function extractFrame(videoPath) {
+    console.log('🖼️ Extracting frame for AI analysis...');
+    return new Promise((resolve, reject) => {
+        ffmpeg(videoPath)
+            .screenshots({
+                timestamps: ['50%'], // Take a screenshot from the middle
+                filename: 'temp_frame.jpg',
+                folder: '.',
+                size: '?x720' // Resize to keep it manageable
+            })
+            .on('end', () => resolve(TEMP_FRAME))
+            .on('error', (err) => reject(err));
+    });
+}
+
+async function getGeminiAnalysis(imagePath) {
+    console.log('🧠 Asking Gemini to generate viral title...');
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+        
+        const imageBuffer = fs.readFileSync(imagePath);
+        const imagePart = {
+            inlineData: {
+                data: imageBuffer.toString("base64"),
+                mimeType: "image/jpeg",
+            },
+        };
+
+        const prompt = `
+        Look at this meme video frame. 
+        1. Write a generic, high-click, viral YouTube Shorts title (max 50 chars). 
+           Examples: "Wait for the end 💀", "Why is this so true?", "I can't stop laughing".
+           Do NOT describe the image too literally, focus on the reaction/emotion.
+        2. Give me 5 viral hashtags relevant to the image content + #shorts.
+        
+        Return JSON format: {"title": "...", "tags": "..."}
+        `;
+
+        const result = await model.generateContent([prompt, imagePart]);
+        const response = await result.response;
+        const text = response.text();
+        
+        // Clean markdown code blocks if present
+        const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(jsonStr);
+
+    } catch (error) {
+        console.error("⚠️ Gemini Failed:", error.message);
+        return { 
+            title: "Wait for the end... 💀", 
+            tags: "#shorts #meme #funny #viral" 
+        };
+    }
 }
 
 // --- Core Functions ---
@@ -43,7 +111,6 @@ async function getNewFiles() {
     const db = getDb();
     const mainFolderId = process.env.DRIVE_FOLDER_ID;
 
-    // 1. Find all sub-folders
     let folders = [mainFolderId];
     try {
         const folderRes = await drive.files.list({
@@ -54,12 +121,8 @@ async function getNewFiles() {
         if (folderRes.data.files) {
             folders = folders.concat(folderRes.data.files.map(f => f.id));
         }
-        console.log(`📂 Found ${folders.length - 1} sub-folders.`);
-    } catch (e) {
-        console.error("Warning: Could not list sub-folders.", e.message);
-    }
+    } catch (e) { console.error(e.message); }
 
-    // 2. Search for videos in ALL identified folders
     let allFiles = [];
     for (const folderId of folders) {
         try {
@@ -68,154 +131,113 @@ async function getNewFiles() {
                 fields: 'files(id, name, mimeType)',
                 pageSize: 50
             });
-            if (res.data.files) {
-                allFiles = allFiles.concat(res.data.files);
-            }
-        } catch (e) {
-            console.error(`Error scanning folder ${folderId}:`, e.message);
-        }
+            if (res.data.files) allFiles = allFiles.concat(res.data.files);
+        } catch (e) {}
     }
 
-    const newFiles = allFiles.filter(f => !db.uploaded_files.includes(f.id));
-    console.log(`🎥 Total videos found: ${allFiles.length}. New videos: ${newFiles.length}.`);
-    return newFiles;
+    return allFiles.filter(f => !db.uploaded_files.includes(f.id));
 }
 
 async function downloadFile(fileId) {
-    console.log(`⬇️ Downloading file ID: ${fileId}...`);
+    console.log(`⬇️ Downloading...`);
     const dest = fs.createWriteStream(TEMP_FILE);
-    
-    const res = await drive.files.get(
-        { fileId: fileId, alt: 'media' },
-        { responseType: 'stream' }
-    );
-
+    const res = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
     return new Promise((resolve, reject) => {
         res.data
-            .on('end', () => {
-                console.log('✅ Download complete.');
-                resolve(TEMP_FILE);
-            })
-            .on('error', err => reject(err))
+            .on('end', () => resolve(TEMP_FILE))
+            .on('error', reject)
             .pipe(dest);
     });
 }
 
-// 1. YouTube Upload
-async function uploadToYoutube(filePath, title, description) {
-    console.log('🚀 Uploading to YouTube...');
+async function uploadToYoutube(filePath, title, description, tags) {
+    console.log(`🚀 Uploading: "${title}"`);
     try {
         const res = await youtube.videos.insert({
             part: 'snippet,status',
             requestBody: {
                 snippet: {
-                    title: title.substring(0, 100),
+                    title: title, 
                     description: description,
-                    tags: ['shorts', 'meme', 'funny'],
+                    tags: tags.split(' ').map(t => t.replace('#', '')),
                     categoryId: '23'
                 },
-                status: {
-                    privacyStatus: 'public',
-                    selfDeclaredMadeForKids: false
-                }
+                status: { privacyStatus: 'public', selfDeclaredMadeForKids: false }
             },
-            media: {
-                body: fs.createReadStream(filePath)
-            }
+            media: { body: fs.createReadStream(filePath) }
         });
-        console.log(`✅ YouTube Upload Success! ID: ${res.data.id}`);
+        console.log(`✅ Success! ID: ${res.data.id}`);
         return res.data.id;
     } catch (error) {
-        console.error('❌ YouTube Upload Failed:', error.message);
+        console.error('❌ Upload Failed:', error.message);
         return null;
     }
 }
 
-// 2. Instagram Upload (REAL)
-async function uploadToInstagram(filePath, caption) {
-    console.log('📸 Uploading to Instagram...');
+async function postComment(videoId, commentText) {
     try {
-        const ig = new IgApiClient();
-        ig.state.generateDevice(process.env.IG_USERNAME);
-        
-        // Login
-        await ig.account.login(process.env.IG_USERNAME, process.env.IG_PASSWORD);
-
-        // Read file as buffer
-        const videoBuffer = fs.readFileSync(filePath);
-        
-        // Instagram requires a cover photo (JPEG). 
-        // For a simple bot, we'll use a 1x1 black pixel JPEG placeholder.
-        const coverBuffer = Buffer.from('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAFA3PEY8ED5GWEZGPDpCUXFiUZRDSXpufWhkc3VzZ3x0dnZ0fXp7fH1+f3p7fH1+f3p7fH1+f3p7fH1+f3p7fH1+f3p7fH1+f3oA...', 'base64');
-
-        // Upload
-        const publishResult = await ig.publish.video({
-            video: videoBuffer,
-            coverImage: coverBuffer,
-            caption: caption,
+        await youtube.commentThreads.insert({
+            part: 'snippet',
+            requestBody: {
+                snippet: {
+                    videoId: videoId,
+                    topLevelComment: { snippet: { textOriginal: commentText } }
+                }
+            }
         });
-
-        if (publishResult.status === 'ok') {
-            console.log(`✅ Instagram Upload Success! Media ID: ${publishResult.media.id}`);
-            return true;
-        } else {
-            console.error('❌ Instagram Upload status not ok:', publishResult);
-            return false;
-        }
-    } catch (error) {
-        console.error('❌ Instagram Upload Failed:', error.message);
-        // Don't crash the whole bot if IG fails
-        return false;
-    }
+        console.log('💬 Comment posted.');
+    } catch (error) {}
 }
 
-// 3. Pinterest Upload (Pending Credentials)
-async function uploadToPinterest(filePath, title, link) {
-    console.log('⚠️ Pinterest Upload Skipped (Configure Board ID in .env)');
-    return true; 
-}
-
-// --- Main Execution ---
+// --- Main ---
 
 async function run() {
     try {
         const newFiles = await getNewFiles();
-        
-        if (newFiles.length === 0) {
-            console.log('No new files to process.');
-            return;
-        }
+        if (newFiles.length === 0) return console.log('No new files.');
 
         const file = newFiles[0];
         const affiliate = getRandomLink();
         
         console.log(`🎬 Processing: ${file.name}`);
-        
         await downloadFile(file.id);
 
-        const title = `Funny Meme 😂 #shorts`;
-        const description = `${file.name}\n\nCheck this out: ${affiliate.link}\n\n#memes #funny`;
-
-        // Uploads
-        await uploadToYoutube(TEMP_FILE, title, description);
+        // AI Magic
+        let title = "Funny Meme 😂";
+        let tags = "#shorts #meme";
         
-        if (process.env.IG_USERNAME && process.env.IG_PASSWORD) {
-            await uploadToInstagram(TEMP_FILE, description);
-        } else {
-            console.log('⚠️ Skipping Instagram (No credentials in .env)');
+        try {
+            await extractFrame(TEMP_FILE);
+            const aiData = await getGeminiAnalysis(TEMP_FRAME);
+            title = aiData.title;
+            tags = aiData.tags;
+        } catch (e) {
+            console.error("AI Step skipped due to error, using defaults.");
         }
 
-        // Update DB
-        const db = getDb();
-        db.uploaded_files.push(file.id);
-        saveDb(db);
-        
-        console.log(`🎉 Finished processing ${file.name}`);
+        const description = `
+${title}
+
+👇 BEST GADGETS 👇
+${affiliate.link}
+
+${tags}
+        `.trim();
+
+        const videoId = await uploadToYoutube(TEMP_FILE, title, description, tags);
+
+        if (videoId) {
+            await postComment(videoId, `🔥 Get it here: ${affiliate.link}`);
+            const db = getDb();
+            db.uploaded_files.push(file.id);
+            saveDb(db);
+        }
 
         if (fs.existsSync(TEMP_FILE)) fs.unlinkSync(TEMP_FILE);
+        if (fs.existsSync(TEMP_FRAME)) fs.unlinkSync(TEMP_FRAME);
 
     } catch (error) {
-        console.error('🔥 Fatal Error:', error);
+        console.error('🔥 Fatal:', error);
     }
 }
 
