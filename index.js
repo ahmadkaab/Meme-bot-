@@ -54,7 +54,61 @@ function getSmartLink(category) {
     return { ...item, link: taggedLink };
 }
 
-// ... (AI Functions remain same) ...
+// --- AI Functions ---
+
+async function extractFrame(videoPath) {
+    console.log('🖼️ Extracting frame for AI analysis...');
+    return new Promise((resolve, reject) => {
+        ffmpeg(videoPath)
+            .screenshots({
+                timestamps: ['50%'], 
+                filename: 'temp_frame.jpg',
+                folder: '.',
+                size: '?x720' 
+            })
+            .on('end', () => resolve(TEMP_FRAME))
+            .on('error', (err) => reject(err));
+    });
+}
+
+async function getGeminiAnalysis(imagePath) {
+    console.log('🧠 Asking Gemini 3 Flash to analyze...');
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        
+        const imageBuffer = fs.readFileSync(imagePath);
+        const imagePart = {
+            inlineData: {
+                data: imageBuffer.toString("base64"),
+                mimeType: "image/jpeg",
+            },
+        };
+
+        const prompt = `
+        Look at this meme video frame. 
+        1. Write a generic, high-click, viral YouTube Shorts title (max 50 chars). 
+        2. Give me 5 viral hashtags.
+        3. CATEGORIZE this image into exactly one of these: "tech", "pets", "home", "funny", "general".
+        
+        Return JSON format: {"title": "...", "tags": "...", "category": "..."}
+        `;
+
+        const result = await model.generateContent([prompt, imagePart]);
+        const response = await result.response;
+        const text = response.text();
+        
+        const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(jsonStr);
+
+    } catch (error) {
+        console.error("⚠️ Gemini Failed:", error.message);
+        return { 
+            title: "Wait for the end... 💀", 
+            tags: "#shorts #meme #funny #viral",
+            category: "general"
+        };
+    }
+}
 
 async function postComment(videoId, commentText) {
     console.log('💬 Posting comment...');
@@ -76,20 +130,77 @@ async function postComment(videoId, commentText) {
     }
 }
 
-async function pinComment(commentId) {
-    // Note: The YouTube API for pinning comments is tricky. 
-    // It strictly requires 'channel owner' context.
-    // We use commentThreads.update to set 'isPublic' but pinning is a different endpoint often restricted.
-    // Actually, 'comments.setModerationStatus' is for holding/spam.
-    // Pinning via API is NOT officially supported in v3 public docs easily without advanced OAuth.
-    // However, we can try to just ensure it's posted.
-    // *Correction*: Pinning is NOT supported via Data API v3 for standard accounts easily.
-    // I will skip the "Pin" call to avoid crashing the bot with 403 errors.
-    // Instead, I will make the comment text BOLD and clearer.
-    console.log('ℹ️ Pinning not supported via API, but comment is live.');
+// --- Core Functions ---
+
+async function getNewFiles() {
+    console.log('🔍 Checking Drive for new files (recursively)...');
+    const db = getDb();
+    const mainFolderId = process.env.DRIVE_FOLDER_ID;
+
+    let folders = [mainFolderId];
+    try {
+        const folderRes = await drive.files.list({
+            q: `'${mainFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            fields: 'files(id, name)',
+            pageSize: 100 
+        });
+        if (folderRes.data.files) {
+            folders = folders.concat(folderRes.data.files.map(f => f.id));
+        }
+    } catch (e) { console.error(e.message); }
+
+    let allFiles = [];
+    for (const folderId of folders) {
+        try {
+            const res = await drive.files.list({
+                q: `'${folderId}' in parents and mimeType contains 'video/' and trashed = false`,
+                fields: 'files(id, name, mimeType)',
+                pageSize: 50
+            });
+            if (res.data.files) allFiles = allFiles.concat(res.data.files);
+        } catch (e) {}
+    }
+
+    return allFiles.filter(f => !db.uploaded_files.includes(f.id));
 }
 
-// --- Main ---
+async function downloadFile(fileId) {
+    console.log(`⬇️ Downloading...`);
+    const dest = fs.createWriteStream(TEMP_FILE);
+    const res = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
+    return new Promise((resolve, reject) => {
+        res.data
+            .on('end', () => resolve(TEMP_FILE))
+            .on('error', reject)
+            .pipe(dest);
+    });
+}
+
+async function uploadToYoutube(filePath, title, description, tags) {
+    console.log(`🚀 Uploading: "${title}"`);
+    try {
+        const res = await youtube.videos.insert({
+            part: 'snippet,status',
+            requestBody: {
+                snippet: {
+                    title: title, 
+                    description: description,
+                    tags: tags.split(' ').map(t => t.replace('#', '')),
+                    categoryId: '23'
+                },
+                status: { privacyStatus: 'public', selfDeclaredMadeForKids: false }
+            },
+            media: { body: fs.createReadStream(filePath) }
+        });
+        console.log(`✅ Success! ID: ${res.data.id}`);
+        return res.data.id;
+    } catch (error) {
+        console.error('❌ Upload Failed:', error.message);
+        return null;
+    }
+}
+
+// --- Main Execution ---
 
 async function run() {
     try {
@@ -130,7 +241,7 @@ ${tags}
         const videoId = await uploadToYoutube(TEMP_FILE, title, description, tags);
 
         if (videoId) {
-            const commentId = await postComment(videoId, `🔥 GET IT HERE: ${affiliate.link}`);
+            await postComment(videoId, `🔥 GET IT HERE: ${affiliate.link}`);
             
             const db = getDb();
             db.uploaded_files.push(file.id);
