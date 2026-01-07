@@ -1,0 +1,21 @@
+{
+  "name": "video-uploder",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "dotenv": "^17.2.3",
+    "form-data": "^4.0.5",
+    "google-auth-library": "^10.5.0",
+    "googleapis": "^170.0.0",
+    "open": "^11.0.0"
+  }
+}
