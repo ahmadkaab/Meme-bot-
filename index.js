@@ -5,6 +5,7 @@ const { google } = require('googleapis');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const ffmpeg = require('fluent-ffmpeg');
 const links = require('./links.json');
+const viralTitles = require('./titles.json');
 
 // --- Configuration ---
 const DB_FILE = './db.json';
@@ -37,9 +38,16 @@ function saveDb(db) {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }
 
-function getRandomLink() {
-    const item = links[Math.floor(Math.random() * links.length)];
-    // Auto-append affiliate tag if not present
+function getSmartLink(category) {
+    // Normalize category
+    const validCategories = Object.keys(links);
+    const cat = validCategories.includes(category) ? category : 'general';
+    
+    // Pick random item from category
+    const categoryItems = links[cat] || links['general'];
+    const item = categoryItems[Math.floor(Math.random() * categoryItems.length)];
+
+    // Auto-append affiliate tag
     let link = item.link;
     if (link.includes('amazon') && !link.includes('tag=')) {
         link += (link.includes('?') ? '&' : '?') + `tag=${AFFILIATE_TAG}`;
@@ -54,10 +62,10 @@ async function extractFrame(videoPath) {
     return new Promise((resolve, reject) => {
         ffmpeg(videoPath)
             .screenshots({
-                timestamps: ['50%'], // Take a screenshot from the middle
+                timestamps: ['50%'], 
                 filename: 'temp_frame.jpg',
                 folder: '.',
-                size: '?x720' // Resize to keep it manageable
+                size: '?x720' 
             })
             .on('end', () => resolve(TEMP_FRAME))
             .on('error', (err) => reject(err));
@@ -65,7 +73,7 @@ async function extractFrame(videoPath) {
 }
 
 async function getGeminiAnalysis(imagePath) {
-    console.log('🧠 Asking Gemini 3 Flash to generate viral title...');
+    console.log('🧠 Asking Gemini 3 Flash to analyze...');
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
         
@@ -80,18 +88,16 @@ async function getGeminiAnalysis(imagePath) {
         const prompt = `
         Look at this meme video frame. 
         1. Write a generic, high-click, viral YouTube Shorts title (max 50 chars). 
-           Examples: "Wait for the end 💀", "Why is this so true?", "I can't stop laughing".
-           Do NOT describe the image too literally, focus on the reaction/emotion.
-        2. Give me 5 viral hashtags relevant to the image content + #shorts.
+        2. Give me 5 viral hashtags.
+        3. CATEGORIZE this image into exactly one of these: "tech", "pets", "home", "funny", "general".
         
-        Return JSON format: {"title": "...", "tags": "..."}
+        Return JSON format: {"title": "...", "tags": "...", "category": "..."}
         `;
 
         const result = await model.generateContent([prompt, imagePart]);
         const response = await result.response;
         const text = response.text();
         
-        // Clean markdown code blocks if present
         const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
         return JSON.parse(jsonStr);
 
@@ -99,7 +105,8 @@ async function getGeminiAnalysis(imagePath) {
         console.error("⚠️ Gemini Failed:", error.message);
         return { 
             title: "Wait for the end... 💀", 
-            tags: "#shorts #meme #funny #viral" 
+            tags: "#shorts #meme #funny #viral",
+            category: "general"
         };
     }
 }
@@ -197,7 +204,6 @@ async function run() {
         if (newFiles.length === 0) return console.log('No new files.');
 
         const file = newFiles[0];
-        const affiliate = getRandomLink();
         
         console.log(`🎬 Processing: ${file.name}`);
         await downloadFile(file.id);
@@ -205,15 +211,20 @@ async function run() {
         // AI Magic
         let title = "Funny Meme 😂";
         let tags = "#shorts #meme";
+        let category = "general";
         
         try {
             await extractFrame(TEMP_FILE);
             const aiData = await getGeminiAnalysis(TEMP_FRAME);
             title = aiData.title;
             tags = aiData.tags;
+            category = aiData.category;
+            console.log(`🧠 AI Category: ${category}`);
         } catch (e) {
             console.error("AI Step skipped due to error, using defaults.");
         }
+
+        const affiliate = getSmartLink(category);
 
         const description = `
 ${title}
