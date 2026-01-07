@@ -65,9 +65,9 @@ async function extractFrame(videoPath) {
 }
 
 async function getGeminiAnalysis(imagePath) {
-    console.log('🧠 Asking Gemini to generate viral title...');
+    console.log('🧠 Asking Gemini 3 Flash to generate viral title...');
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
         
         const imageBuffer = fs.readFileSync(imagePath);
         const imagePart = {
