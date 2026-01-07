@@ -1,22 +1,18 @@
-[
-  {
-    "link": "https://www.amazon.com/dp/B07G3P5W71",
-    "label": "Funny Chicken Light"
-  },
-  {
-    "link": "https://www.amazon.com/dp/B07MFM8F6V",
-    "label": "Useless Box"
-  },
-  {
-    "link": "https://www.amazon.com/dp/B08F2W9C4R",
-    "label": "Tiny Violin"
-  },
-  {
-    "link": "https://www.amazon.com/dp/B078N29D7Z",
-    "label": "Toilet Golf"
-  },
-  {
-    "link": "https://www.amazon.com/dp/B071DQ3X3P",
-    "label": "Screaming Goat"
-  }
-]
+{
+  "tech": [
+    { "link": "https://www.amazon.com/dp/B07G3P5W71", "label": "Funny Chicken Light" }
+  ],
+  "pets": [
+    { "link": "https://www.amazon.com/dp/B071DQ3X3P", "label": "Screaming Goat" }
+  ],
+  "home": [
+    { "link": "https://www.amazon.com/dp/B078N29D7Z", "label": "Toilet Golf" }
+  ],
+  "funny": [
+    { "link": "https://www.amazon.com/dp/B07MFM8F6V", "label": "Useless Box" },
+    { "link": "https://www.amazon.com/dp/B08F2W9C4R", "label": "Tiny Violin" }
+  ],
+  "general": [
+    { "link": "https://www.amazon.com/dp/B09ad7f2z", "label": "Viral Gadget" }
+  ]
+}
