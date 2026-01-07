@@ -40,20 +40,50 @@ function getRandomLink() {
 // --- Core Functions ---
 
 async function getNewFiles() {
-    console.log('🔍 Checking Drive for new files...');
+    console.log('🔍 Checking Drive for new files (recursively)...');
     const db = getDb();
-    
-    // List MP4 files in the specific folder
-    const res = await drive.files.list({
-        q: `'${process.env.DRIVE_FOLDER_ID}' in parents and mimeType contains 'video/' and trashed = false`,
-        fields: 'files(id, name, mimeType)',
-    });
+    const mainFolderId = process.env.DRIVE_FOLDER_ID;
 
-    const files = res.data.files || [];
-    // Filter out files that are already in our DB
-    const newFiles = files.filter(f => !db.uploaded_files.includes(f.id));
+    // 1. Find all sub-folders
+    let folders = [mainFolderId];
+    try {
+        const folderRes = await drive.files.list({
+            q: `'${mainFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            fields: 'files(id, name)',
+            pageSize: 100 
+        });
+        if (folderRes.data.files) {
+            folders = folders.concat(folderRes.data.files.map(f => f.id));
+        }
+        console.log(`📂 Found ${folders.length - 1} sub-folders.`);
+    } catch (e) {
+        console.error("Warning: Could not list sub-folders.", e.message);
+    }
+
+    // 2. Search for videos in ALL identified folders
+    let allFiles = [];
     
-    console.log(`Found ${files.length} videos, ${newFiles.length} are new.`);
+    // We can't put ALL folders in one query if there are too many, so we loop or batch.
+    // Since you have ~11 folders, a loop is fine.
+    for (const folderId of folders) {
+        try {
+            const res = await drive.files.list({
+                q: `'${folderId}' in parents and mimeType contains 'video/' and trashed = false`,
+                fields: 'files(id, name, mimeType)',
+                pageSize: 50 // Get up to 50 videos per folder per run to save time
+            });
+            if (res.data.files) {
+                allFiles = allFiles.concat(res.data.files);
+            }
+        } catch (e) {
+            console.error(`Error scanning folder ${folderId}:`, e.message);
+        }
+    }
+
+    // Filter out files that are already in our DB
+    const newFiles = allFiles.filter(f => !db.uploaded_files.includes(f.id));
+    
+    console.log(`🎥 Total videos found: ${allFiles.length}. New videos to process: ${newFiles.length}.`);
     return newFiles;
 }
 
