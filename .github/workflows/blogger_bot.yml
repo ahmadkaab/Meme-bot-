@@ -31,7 +31,9 @@ jobs:
         GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
         GOOGLE_REDIRECT_URI: "http://localhost:3000/oauth2callback"
         DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
-        # Instagram/Pinterest secrets go here later
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        IG_USERNAME: ${{ secrets.IG_USERNAME }}
+        IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
       run: node index.js
 
     - name: Commit & Push DB changes
