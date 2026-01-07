@@ -42,6 +42,21 @@ async function getNewFiles() {
     console.log('🔍 Checking Drive for new files (recursively)...');
     const db = getDb();
     const mainFolderId = process.env.DRIVE_FOLDER_ID;
+    
+    console.log(`[DEBUG] Target Folder ID: ${mainFolderId}`);
+
+    // DEBUG: Check what the bot can see
+    try {
+        console.log('[DEBUG] Listing "Shared with me" folders to verify access...');
+        const checkRes = await drive.files.list({
+            q: "sharedWithMe = true",
+            fields: 'files(id, name)',
+            pageSize: 10
+        });
+        console.log('[DEBUG] Shared folders visible:', checkRes.data.files);
+    } catch (e) {
+        console.log('[DEBUG] Error listing shared files:', e.message);
+    }
 
     // 1. Find all sub-folders
     let folders = [mainFolderId];
@@ -57,6 +72,8 @@ async function getNewFiles() {
         console.log(`📂 Found ${folders.length - 1} sub-folders.`);
     } catch (e) {
         console.error("Warning: Could not list sub-folders.", e.message);
+        // If the main folder fails, we can't do anything.
+        if (folders.length === 1) return [];
     }
 
     // 2. Search for videos in ALL identified folders
