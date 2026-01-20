@@ -104,7 +104,13 @@ async function loginToInstagram() {
             fs.writeFileSync(IG_STATE_FILE, JSON.stringify(serialized));
             
             // Post-login flow
-            process.nextTick(async () => await ig.simulate.postLoginFlow());
+            process.nextTick(async () => {
+                try {
+                    await ig.simulate.postLoginFlow();
+                } catch (e) {
+                    console.warn('⚠️ IG Post-login simulation warning (safe to ignore):', e.message);
+                }
+            });
         } catch (loginError) {
             console.error('❌ Instagram Login Failed:', loginError.message);
             // If it's a checkpoint error, we might need manual intervention, but for now we just fail gracefully.
