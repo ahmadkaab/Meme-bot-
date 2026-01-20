@@ -3,11 +3,15 @@ const fs = require('fs');
 const { google } = require('googleapis');
 const ffmpeg = require('fluent-ffmpeg');
 
-// Force use of static binaries (Crash-proof on GitHub Actions)
-const ffmpegPath = require('ffmpeg-static');
-const ffprobePath = require('ffprobe-static');
-ffmpeg.setFfmpegPath(ffmpegPath);
-ffmpeg.setFfprobePath(ffprobePath.path);
+// Try static, fallback to system
+try {
+    const ffmpegPath = require('ffmpeg-static');
+    const ffprobePath = require('ffprobe-static');
+    ffmpeg.setFfmpegPath(ffmpegPath);
+    ffmpeg.setFfprobePath(ffprobePath.path);
+} catch (e) {
+    console.log("⚠️ Using system FFmpeg");
+}
 
 const DB_FILE = './db.json';
 const OUTPUT_FILE = './compilation_final.mp4';
