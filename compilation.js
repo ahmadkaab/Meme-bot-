@@ -108,6 +108,8 @@ async function run() {
         if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
 
         const db = getDb();
+        console.log("🔍 DEBUG: DB History Length:", db.history ? db.history.length : "Undefined");
+        
         // Allow even small compilations for testing if we have at least 2 videos
         if (!db.history || db.history.length < 2) { 
             console.log("⚠️ Not enough history for a compilation yet.");
