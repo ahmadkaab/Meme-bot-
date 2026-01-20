@@ -63,16 +63,17 @@ async function createCompilation(videoFiles) {
         
         console.log(`🔹 Processing clip ${i+1}/${videoFiles.length}...`);
         
+        // Simpler "Black Bars" Filter (Crash Proof)
+        // [0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2[v]
+        
         await new Promise((resolve, reject) => {
             ffmpeg(input)
                 .complexFilter([
-                    '[0:v]scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,boxblur=20:10,setsar=1[bg]',
-                    '[0:v]scale=-1:1080[fg]',
-                    '[bg][fg]overlay=(W-w)/2:(H-h)/2'
-                ])
+                    `[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2[v]`
+                ], 'v')
                 .outputOptions([
                     '-c:v libx264',
-                    '-preset ultrafast', // Trade size for speed
+                    '-preset ultrafast', // Fast render
                     '-bsf:v h264_mp4toannexb',
                     '-f mpegts'
                 ])
@@ -154,6 +155,14 @@ async function run() {
         // Download
         for (let i = 0; i < recentVideos.length; i++) {
             const vid = recentVideos[i];
+            
+            // Skip if the ID looks like a YouTube ID (11 chars, no dashes usually, but Drive IDs are much longer)
+            // Drive IDs are usually ~33 chars. YouTube IDs are 11.
+            if (vid.driveId.length < 20) {
+                console.log(`⚠️ Skipping invalid Drive ID (likely YT ID): ${vid.driveId}`);
+                continue;
+            }
+
             const dest = `${TEMP_DIR}/raw_${i}.mp4`;
             console.log(`⬇️ Downloading ${vid.driveId}...`);
             try {
