@@ -36,9 +36,8 @@ const ig = new IgApiClient();
 // --- Helpers ---
 
 function getDb() {
-    if (!fs.existsSync(DB_FILE)) return { uploaded_files: [], history: [] };
+    if (!fs.existsSync(DB_FILE)) return { uploaded_files: [] };
     const db = JSON.parse(fs.readFileSync(DB_FILE));
-    if (!db.history) db.history = [];
     return db;
 }
 
@@ -341,13 +340,6 @@ ${tags}
             
             const db = getDb();
             db.uploaded_files.push(file.id);
-            
-            // Save history for Compilation Bot
-            db.history.push({
-                driveId: file.id,
-                youtubeId: videoId,
-                date: new Date().toISOString()
-            });
             
             saveDb(db);
         }
