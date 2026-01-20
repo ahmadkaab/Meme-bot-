@@ -5,8 +5,6 @@ const { google } = require('googleapis');
 const ffmpeg = require('fluent-ffmpeg');
 
 // 🧠 Smart FFmpeg Detection
-// Try to use static binaries (Best for Local/Windows)
-// If not available, fallback to system 'ffmpeg' (Best for Linux/CI)
 try {
     const ffmpegPath = require('ffmpeg-static');
     const ffprobePath = require('ffprobe-static');
@@ -55,7 +53,7 @@ async function concatParts(parts, output) {
         ffmpeg()
             .input(listFile)
             .inputOptions(['-f concat', '-safe 0'])
-            .outputOptions('-c copy') // Fast copy for pre-processed parts
+            .outputOptions('-c copy') 
             .save(output)
             .on('end', resolve)
             .on('error', reject);
@@ -89,7 +87,6 @@ async function createCompilationChunk(videoFiles, outputFilename) {
         processedClips.push(`file '${path.basename(output)}'`);
     }
 
-    // Merge this small chunk
     const listFile = `${TEMP_DIR}/${path.basename(outputFilename)}_list.txt`;
     fs.writeFileSync(listFile, processedClips.join('\n'));
     
@@ -97,7 +94,6 @@ async function createCompilationChunk(videoFiles, outputFilename) {
         ffmpeg()
             .input(listFile)
             .inputOptions(['-f concat', '-safe 0'])
-            // Re-encode chunk to ensure stability
             .outputOptions([
                 '-c:v libx264',
                 '-preset ultrafast',
@@ -111,6 +107,38 @@ async function createCompilationChunk(videoFiles, outputFilename) {
     return outputFilename;
 }
 
+async function uploadToYoutube(filePath, videoCount) {
+    console.log(`🚀 Uploading Compilation...`);
+    const date = new Date().toDateString();
+    const affiliate = process.env.AFFILIATE_LINK || "https://www.amazon.com";
+    
+    const title = `Best Viral Memes of the Week! 😂 (${videoCount} Videos) - ${date}`;
+    const description = "
+Here are the best memes from this week!
+Subscribe for daily content.
+
+👇 BEST GADGETS HERE 👇
+${affiliate}
+
+#memes #funny #compilation #viral #2026
+    ".trim();
+
+    const res = await youtube.videos.insert({
+        part: 'snippet,status',
+        requestBody: {
+            snippet: {
+                title: title, 
+                description: description,
+                tags: ['memes', 'funny', 'compilation', 'viral'],
+                categoryId: '23'
+            },
+            status: { privacyStatus: 'public', selfDeclaredMadeForKids: false }
+        },
+        media: { body: fs.createReadStream(filePath) }
+    });
+    console.log(`✅ Compilation Uploaded! ID: ${res.data.id}`);
+}
+
 async function run() {
     try {
         if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
@@ -118,13 +146,12 @@ async function run() {
         const db = getDb();
         console.log("🔍 DEBUG: DB History Length:", db.history ? db.history.length : "Undefined");
         
-        // Allow even small compilations for testing if we have at least 2 videos
         if (!db.history || db.history.length < 2) { 
             console.log("⚠️ Not enough history for a compilation yet.");
             return;
         }
 
-        const recentVideos = db.history.slice(-12); // Take up to 12
+        const recentVideos = db.history.slice(-12);
         console.log(`📦 Found ${recentVideos.length} videos for compilation.`);
 
         const downloadedFiles = [];
@@ -144,7 +171,6 @@ async function run() {
 
         if (downloadedFiles.length === 0) return;
 
-        // --- CHUNKING STRATEGY ---
         const CHUNK_SIZE = 3;
         const chunkFiles = [];
         
@@ -162,14 +188,11 @@ async function run() {
 
         if (chunkFiles.length === 0) throw new Error("No chunks created.");
 
-        // Final Merge
         const finalFile = OUTPUT_FILE;
         await concatParts(chunkFiles, finalFile);
 
-        // Upload
         await uploadToYoutube(finalFile, downloadedFiles.length);
 
-        // Cleanup
         console.log("🧹 Cleaning up...");
         if (fs.existsSync(OUTPUT_FILE)) fs.unlinkSync(OUTPUT_FILE);
         fs.rmSync(TEMP_DIR, { recursive: true, force: true });
@@ -178,3 +201,6 @@ async function run() {
         console.error("🔥 Fatal Error:", error);
     }
 }
+
+// 🔥 Start the engine
+run();
