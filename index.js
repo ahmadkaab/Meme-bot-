@@ -60,16 +60,67 @@ function getAffiliateLink() {
 
 function getRandomTitle() {
     const titles = [
+        // --- Suspense / Wait for it ---
         "Wait for the end... 💀",
+        "You won't believe the ending 😱",
+        "Watch till the last second! ⏳",
+        "The ending is personal 💀",
+        "Wait for the reaction... 😂",
+        "Unexpected ending... 😳",
+        "I was NOT expecting that 💀",
+        "The plot twist... 🤯",
+        "Wait for it... 🤣",
+        "Never celebrate too early 💀",
+
+        // --- Try Not To Laugh ---
+        "Try not to laugh (IMPOSSIBLE) ❌",
+        "If you laugh, you lose! 😆",
+        "Hardest Try Not To Laugh Challenge 😤",
+        "You laugh = You restart video 🤣",
+        "I failed instantly 😂",
+        "Bet you can't watch without laughing 🤑",
+        "Meme therapy for your soul 💊",
+        "Instant serotonin boost 📈",
+        "Laughing at this for 10 mins straight 🤣",
+        "My stomach hurts from laughing 😭",
+
+        // --- Relatable / Me IRL ---
+        "Me every single morning... 😴",
+        "Why is this so relatable? 😭",
+        "This is literally me 😂",
+        "My last brain cell... 🧠",
+        "Me when the teacher leaves the room 🏃",
+        "Tag a friend who does this 👇",
+        "Bro really thought... 💀",
+        "Every sibling ever... 🙄",
+        "Me trying to be an adult 📉",
+        "Pov: You have 5 minutes to study 📚",
+
+        // --- 2026 / Trends ---
         "Funny Memes 2026 😂",
-        "You won't believe this... 😳",
         "Best Meme Compilation 2026 🔥",
-        "Try not to laugh 😆",
-        "Unexpected ending... 😱",
         "Only in 2026... 💀",
-        "Meme Review 👏👏",
-        "Daily Dose of Memes 💊",
-        "Viral Shorts 2026 📈"
+        "Viral Shorts 2026 📈",
+        "Fresh Memes 2026 🥗",
+        "Top 10 Funny Moments 2026 🏆",
+        "Internet breaking moments 2026 💥",
+        "The best video on the internet today 🌍",
+        "2026 Humor is broken 💀",
+        "Meme Review 2026 👏👏",
+
+        // --- Shock / Random ---
+        "Who did this?? 😭",
+        "I have so many questions... ❓",
+        "Bro woke up and chose violence 💀",
+        "What did I just watch? 😳",
+        "Explanation needed... 😂",
+        "Legend says he is still running 🏃",
+        "The silence was loud 💀",
+        "Instant Regret 😳",
+        "Task failed successfully ✅",
+        "Emotional Damage 📉",
+        "Respect +100 📈",
+        "Caught in 4K 📸"
     ];
     return titles[Math.floor(Math.random() * titles.length)];
 }
