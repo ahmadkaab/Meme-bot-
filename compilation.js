@@ -37,29 +37,31 @@ async function downloadFile(fileId, destPath) {
     });
 }
 
-async function createCompilation(videoFiles) {
-    console.log(`🎬 Stitching ${videoFiles.length} videos...`);
-    
-    // Create a complex filter string
-    // We want to verify that all inputs are valid videos first
-    // Then concat them. 
-    // BUT! Since they are vertical, we first need to convert EACH one to 16:9 
-    // and THEN concat them. This is resource intensive.
-    
-    // STRATEGY: 
-    // 1. Convert each clip to a temporary 16:9 .ts file (fast concat)
-    // 2. Concat all .ts files
+async function concatParts(parts, output) {
+    console.log(`🔗 Merging ${parts.length} chunks into final movie...`);
+    const listFile = `${TEMP_DIR}/parts_list.txt`;
+    const fileLines = parts.map(p => `file '${path.basename(p)}'`).join('\n');
+    fs.writeFileSync(listFile, fileLines);
+
+    await new Promise((resolve, reject) => {
+        ffmpeg()
+            .input(listFile)
+            .inputOptions(['-f concat', '-safe 0'])
+            .outputOptions('-c copy') // Fast copy for pre-processed parts
+            .save(output)
+            .on('end', resolve)
+            .on('error', reject);
+    });
+}
+
+async function createCompilationChunk(videoFiles, outputFilename) {
+    console.log(`🎬 Processing chunk of ${videoFiles.length} videos -> ${outputFilename}...`);
     
     const processedClips = [];
     
     for (let i = 0; i < videoFiles.length; i++) {
         const input = videoFiles[i];
-        const output = `${TEMP_DIR}/clip_${i}.ts`; // TS format is safer for concat
-        
-        console.log(`🔹 Processing clip ${i+1}/${videoFiles.length}...`);
-        
-        // Simpler "Black Bars" Filter (Crash Proof)
-        // [0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2[v]
+        const output = `${input}_processed.ts`; 
         
         await new Promise((resolve, reject) => {
             ffmpeg(input)
@@ -68,7 +70,7 @@ async function createCompilation(videoFiles) {
                 ], 'v')
                 .outputOptions([
                     '-c:v libx264',
-                    '-preset ultrafast', // Fast render
+                    '-preset ultrafast', 
                     '-bsf:v h264_mp4toannexb',
                     '-f mpegts'
                 ])
@@ -76,71 +78,29 @@ async function createCompilation(videoFiles) {
                 .on('end', resolve)
                 .on('error', reject);
         });
-        processedClips.push(`file 'clip_${i}.ts'`);
+        processedClips.push(`file '${path.basename(output)}'`);
     }
 
-    console.log("🔗 Concatenating (Demuxer Mode)...");
-    
-    // Create List File for Demuxer
-    const listFile = `${TEMP_DIR}/list.txt`;
+    // Merge this small chunk
+    const listFile = `${TEMP_DIR}/${path.basename(outputFilename)}_list.txt`;
     fs.writeFileSync(listFile, processedClips.join('\n'));
-    
-    // Merge using Concat Demuxer (Fast & Low RAM)
-    const mergedOutput = OUTPUT_FILE;
     
     await new Promise((resolve, reject) => {
         ffmpeg()
             .input(listFile)
             .inputOptions(['-f concat', '-safe 0'])
-            // .outputOptions('-c copy') // Stream copy (Crashing)
+            // Re-encode chunk to ensure stability
             .outputOptions([
-                '-c:v libx264',      // Re-encode video
-                '-preset ultrafast', // Fast as possible
-                '-c:a aac'           // Re-encode audio
-            ]) 
-            .save(mergedOutput)
-            .on('end', () => {
-                resolve();
-            })
-            .on('error', (err) => {
-                console.error("❌ FFmpeg Concat Error:", err);
-                reject(err);
-            });
+                '-c:v libx264',
+                '-preset ultrafast',
+                '-c:a aac'
+            ])
+            .save(outputFilename)
+            .on('end', resolve)
+            .on('error', reject);
     });
     
-    return mergedOutput;
-}
-
-async function uploadToYoutube(filePath, videoCount) {
-    console.log(`🚀 Uploading Compilation...`);
-    const date = new Date().toDateString();
-    const affiliate = process.env.AFFILIATE_LINK || "https://www.amazon.com";
-    
-    const title = `Best Viral Memes of the Week! 😂 (${videoCount} Videos) - ${date}`;
-    const description = `
-Here are the best memes from this week!
-Subscribe for daily content.
-
-👇 BEST GADGETS HERE 👇
-${affiliate}
-
-#memes #funny #compilation #viral #2026
-    `.trim();
-
-    const res = await youtube.videos.insert({
-        part: 'snippet,status',
-        requestBody: {
-            snippet: {
-                title: title, 
-                description: description,
-                tags: ['memes', 'funny', 'compilation', 'viral'],
-                categoryId: '23'
-            },
-            status: { privacyStatus: 'public', selfDeclaredMadeForKids: false }
-        },
-        media: { body: fs.createReadStream(filePath) }
-    });
-    console.log(`✅ Compilation Uploaded! ID: ${res.data.id}`);
+    return outputFilename;
 }
 
 async function run() {
@@ -148,29 +108,19 @@ async function run() {
         if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR);
 
         const db = getDb();
-        if (!db.history || db.history.length < 5) {
+        // Allow even small compilations for testing if we have at least 2 videos
+        if (!db.history || db.history.length < 2) { 
             console.log("⚠️ Not enough history for a compilation yet.");
             return;
         }
 
-        // Get last 10 videos (or however many we have from the last week)
-        // Sort by date (newest first) and take top 10
-        const recentVideos = db.history.slice(-10);
-        
+        const recentVideos = db.history.slice(-12); // Take up to 12
         console.log(`📦 Found ${recentVideos.length} videos for compilation.`);
 
         const downloadedFiles = [];
-        
-        // Download
         for (let i = 0; i < recentVideos.length; i++) {
             const vid = recentVideos[i];
-            
-            // Skip if the ID looks like a YouTube ID (11 chars, no dashes usually, but Drive IDs are much longer)
-            // Drive IDs are usually ~33 chars. YouTube IDs are 11.
-            if (vid.driveId.length < 20) {
-                console.log(`⚠️ Skipping invalid Drive ID (likely YT ID): ${vid.driveId}`);
-                continue;
-            }
+            if (vid.driveId.length < 20) continue; 
 
             const dest = `${TEMP_DIR}/raw_${i}.mp4`;
             console.log(`⬇️ Downloading ${vid.driveId}...`);
@@ -178,14 +128,33 @@ async function run() {
                 await downloadFile(vid.driveId, dest);
                 downloadedFiles.push(dest);
             } catch (e) {
-                console.error(`❌ Failed to download ${vid.driveId}:`, e.message);
+                console.error(`❌ Failed:`, e.message);
             }
         }
 
         if (downloadedFiles.length === 0) return;
 
-        // Render
-        const finalFile = await createCompilation(downloadedFiles);
+        // --- CHUNKING STRATEGY ---
+        const CHUNK_SIZE = 3;
+        const chunkFiles = [];
+        
+        for (let i = 0; i < downloadedFiles.length; i += CHUNK_SIZE) {
+            const chunk = downloadedFiles.slice(i, i + CHUNK_SIZE);
+            const chunkOutput = `${TEMP_DIR}/part_${i/CHUNK_SIZE}.mp4`;
+            
+            try {
+                await createCompilationChunk(chunk, chunkOutput);
+                chunkFiles.push(chunkOutput);
+            } catch (err) {
+                console.error(`❌ Chunk failed:`, err);
+            }
+        }
+
+        if (chunkFiles.length === 0) throw new Error("No chunks created.");
+
+        // Final Merge
+        const finalFile = OUTPUT_FILE;
+        await concatParts(chunkFiles, finalFile);
 
         // Upload
         await uploadToYoutube(finalFile, downloadedFiles.length);
@@ -199,5 +168,3 @@ async function run() {
         console.error("🔥 Fatal Error:", error);
     }
 }
-
-run();
