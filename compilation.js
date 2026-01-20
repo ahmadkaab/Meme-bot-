@@ -3,16 +3,11 @@ const fs = require('fs');
 const { google } = require('googleapis');
 const ffmpeg = require('fluent-ffmpeg');
 
-// We use system ffmpeg in GitHub Actions (sudo apt-get install ffmpeg)
-// But for local testing, fallback to static if needed
-try {
-    const ffmpegPath = require('ffmpeg-static');
-    const ffprobePath = require('ffprobe-static');
-    ffmpeg.setFfmpegPath(ffmpegPath);
-    ffmpeg.setFfprobePath(ffprobePath.path);
-} catch (e) {
-    console.log("⚠️ Using system FFmpeg");
-}
+// Force use of static binaries (Crash-proof on GitHub Actions)
+const ffmpegPath = require('ffmpeg-static');
+const ffprobePath = require('ffprobe-static');
+ffmpeg.setFfmpegPath(ffmpegPath);
+ffmpeg.setFfprobePath(ffprobePath.path);
 
 const DB_FILE = './db.json';
 const OUTPUT_FILE = './compilation_final.mp4';
