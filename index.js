@@ -249,7 +249,8 @@ async function run() {
         const newFiles = await getNewFiles();
         if (newFiles.length === 0) return console.log('No new files.');
 
-        const file = newFiles[0];
+        // Shuffle to get random variety
+        const file = newFiles[Math.floor(Math.random() * newFiles.length)];
         
         console.log(`🎬 Processing: ${file.name}`);
         await downloadFile(file.id);
