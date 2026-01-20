@@ -92,7 +92,12 @@ async function createCompilation(videoFiles) {
         ffmpeg()
             .input(listFile)
             .inputOptions(['-f concat', '-safe 0'])
-            .outputOptions('-c copy') // Stream copy (Instant!)
+            // .outputOptions('-c copy') // Stream copy (Crashing)
+            .outputOptions([
+                '-c:v libx264',      // Re-encode video
+                '-preset ultrafast', // Fast as possible
+                '-c:a aac'           // Re-encode audio
+            ]) 
             .save(mergedOutput)
             .on('end', () => {
                 resolve();
