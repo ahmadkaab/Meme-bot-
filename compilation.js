@@ -81,22 +81,31 @@ async function createCompilation(videoFiles) {
                 .on('end', resolve)
                 .on('error', reject);
         });
-        processedClips.push(output);
+        processedClips.push(`file 'clip_${i}.ts'`);
     }
 
-    console.log("🔗 Concatenating clips...");
+    console.log("🔗 Concatenating (Demuxer Mode)...");
     
-    // Merge TS files
+    // Create List File for Demuxer
+    const listFile = `${TEMP_DIR}/list.txt`;
+    fs.writeFileSync(listFile, processedClips.join('\n'));
+    
+    // Merge using Concat Demuxer (Fast & Low RAM)
     const mergedOutput = OUTPUT_FILE;
-    const command = ffmpeg();
-    
-    processedClips.forEach(clip => command.input(clip));
     
     await new Promise((resolve, reject) => {
-        command
-            .on('error', reject)
-            .on('end', resolve)
-            .mergeToFile(mergedOutput, TEMP_DIR);
+        ffmpeg()
+            .input(listFile)
+            .inputOptions(['-f concat', '-safe 0'])
+            .outputOptions('-c copy') // Stream copy (Instant!)
+            .save(mergedOutput)
+            .on('end', () => {
+                resolve();
+            })
+            .on('error', (err) => {
+                console.error("❌ FFmpeg Concat Error:", err);
+                reject(err);
+            });
     });
     
     return mergedOutput;
