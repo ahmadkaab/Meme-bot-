@@ -4,11 +4,18 @@ const path = require('path');
 const { google } = require('googleapis');
 const ffmpeg = require('fluent-ffmpeg');
 
-// ✅ Local Mode: Use ffmpeg-static (It works on your PC!)
-const ffmpegPath = require('ffmpeg-static');
-const ffprobePath = require('ffprobe-static');
-ffmpeg.setFfmpegPath(ffmpegPath);
-ffmpeg.setFfprobePath(ffprobePath.path);
+// 🧠 Smart FFmpeg Detection
+// Try to use static binaries (Best for Local/Windows)
+// If not available, fallback to system 'ffmpeg' (Best for Linux/CI)
+try {
+    const ffmpegPath = require('ffmpeg-static');
+    const ffprobePath = require('ffprobe-static');
+    if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
+    if (ffprobePath && ffprobePath.path) ffmpeg.setFfprobePath(ffprobePath.path);
+    console.log("✅ Using FFmpeg Static");
+} catch (e) {
+    console.log("⚠️ FFmpeg Static not found, using system binary.");
+}
 
 const DB_FILE = './db.json';
 const OUTPUT_FILE = './compilation_final.mp4';
