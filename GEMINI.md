@@ -1,79 +1,69 @@
 # 🤖 Autonomous Meme Affiliate Bot (The "Meme-Bot")
 
-**Status:** 🟢 Active & Optimized
-**Core Function:** Automatically finds meme videos in Google Drive, analyzes them with AI, and uploads them to YouTube Shorts with context-aware viral titles and affiliate product links.
+**Status:** 🟢 Active & Optimized (v2.0 - No AI, High Volume)
+**Core Function:** Automatically finds meme videos in Google Drive, uploads them to **YouTube Shorts & Instagram Reels**, and promotes a single high-value affiliate link.
 
 ---
 
 ## 🏗 System Architecture
 
 ### 1. Source (The Content)
-*   **Location:** Google Drive (Recursive Folder Search).
-*   **Logic:** Scans all sub-folders of the main ID (`1dsZl...`) for `.mp4` files.
+*   **Location:** Google Drive (Specific Folder).
+*   **Logic:** Scans a specific folder (`DRIVE_FOLDER_ID`) for `.mp4` files.
 *   **History:** Uses `db.json` to track `file.id` so videos are never uploaded twice.
 
-### 2. The Brain (Gemini 3 Flash AI) 🧠
-*   **Model:** `gemini-3-flash-preview` (Vision Capabilities).
-*   **Process:**
-    1.  Extracts a frame from the middle of the video (`ffmpeg`).
-    2.  Sends the image to Gemini.
-    3.  **Analyzes:** "What is happening here? Is it Tech, Pets, Home, or Funny?"
-    4.  **Generates:**
-        *   A Viral, Emotional Hook Title (e.g., "Wait for the reaction 💀").
-        *   5 Relevant Hashtags.
-        *   The content Category.
+### 2. The Strategy (Viral Roulette) 🎰
+*   **No AI:** Removed Gemini to increase speed and reduce errors.
+*   **Titles:** Picks from a curated list of "Viral Hooks" (e.g., "Wait for the end... 💀", "Funny Memes 2026 😂").
+*   **Metadata:** Uses a fixed, high-SEO tag set (`#shorts #memes #funny #viral #humor #fyp #2026`).
 
 ### 3. The Money (Affiliate Engine) 💸
-*   **Link Database:** `links.json` (Categorized by Tech, Pets, Home, etc.).
-*   **Smart Matching:** If Gemini sees a Cat -> Bot picks a "Pet" product.
-*   **Auto-Tagging:** Automatically appends `?tag=meme067-21` to every Amazon link.
+*   **Dynamic Secret:** No more `links.json`. The bot grabs the link directly from **GitHub Secrets** (`AFFILIATE_LINK`).
+*   **Flexibility:** Change the product you are selling instantly by updating the Secret on your phone.
 *   **Placement:**
-    *   **Description:** "👇 BEST GADGETS 👇 [Link]"
-    *   **Comment:** "🔥 GET IT HERE: [Link]" (Pinned visibility logic).
+    *   **YouTube:** Description & First Comment.
+    *   **Instagram:** Caption (Link in Bio reference).
 
 ### 4. The Execution (GitHub Actions) ⚙️
-*   **Schedule:** Runs every 6 hours (`cron: '0 */6 * * *'`).
+*   **Schedule:** Runs **3 times a day** (Every 8 hours: `cron: '0 */8 * * *'`).
 *   **Environment:** Node.js 20 on Ubuntu.
-*   **Secrets:**
+*   **Secrets Required:**
     *   `GOOGLE_REFRESH_TOKEN`: Authenticates Drive/YouTube.
-    *   `GEMINI_API_KEY`: Powers the AI analysis.
-    *   `DRIVE_FOLDER_ID`: Target content folder.
+    *   `DRIVE_FOLDER_ID`: Target content folder ID.
+    *   `IG_USERNAME` & `IG_PASSWORD`: Instagram Login.
+    *   `AFFILIATE_LINK`: The product link to promote.
 
 ---
 
 ## 📂 Key Files
 
-*   **`index.js`**: The main brain. Handles download, AI analysis, link selection, upload, and commenting.
-*   **`links.json`**: The product database. **Update this file to change what you are selling.**
-*   **`titles.json`**: (Legacy/Fallback) Viral hook list if AI fails.
+*   **`index.js`**: The main brain. Handles download, ffmpeg processing, uploading (YT + IG), and commenting.
 *   **`db.json`**: The memory bank. **Never delete this** or it will repost old videos.
 *   **`.github/workflows/blogger_bot.yml`**: The scheduler configuration.
+*   **`ig_state.json`**: Stores Instagram login session (cookies) to avoid login blocks.
 
 ---
 
 ## 🛠 Troubleshooting & Maintenance
 
-### How to Update Products
-1.  Go to `links.json` on GitHub.
-2.  Add a new link under the correct category (e.g., "tech").
-    *   Format: `{"link": "amazon.com/...", "label": "Cool Thing"}`
-3.  **You do NOT need to add your tag.** The bot adds `?tag=meme067-21` automatically.
+### How to Change the Product
+1.  Go to **GitHub Repo -> Settings -> Secrets and variables -> Actions**.
+2.  Update `AFFILIATE_LINK`.
+3.  The next bot run will sell the new product.
 
-### If "API Key Invalid" Error
-*   Check GitHub Secrets -> `GEMINI_API_KEY`. It might need rotating if quota is exceeded.
+### If Instagram Upload Fails
+*   Check Action Logs. If "Checkpoint Required":
+    1.  Log in to Instagram on your phone.
+    2.  Approve the "Was this you?" notification.
+    3.  Re-run the bot manually.
 
-### If "File Not Found" (Drive)
-*   Ensure the Google Drive folder is shared with the bot's email address (found in `client_email` if using service account, or the user authorized via OAuth).
-
-### Scaling Up 📈
-To post more frequently (e.g., every 4 hours):
-1.  Edit `.github/workflows/blogger_bot.yml`.
-2.  Change `cron: '0 */6 * * *'` to `cron: '0 */4 * * *'`.
+### How to Add More Videos
+*   Simply upload `.mp4` files to the Google Drive folder defined in `DRIVE_FOLDER_ID`. The bot will find them automatically.
 
 ---
 
 ## 🚀 "OP" Strategy Checklist
-*   [x] **Vision AI:** Smart titles based on video content.
-*   [x] **Link Injection:** Context-aware Amazon links.
-*   [x] **Comment Spam:** Auto-comments first link.
-*   [x] **Volume:** 4-6 uploads/day on autopilot.
+*   [x] **Multi-Platform:** Posts to YouTube Shorts AND Instagram Reels.
+*   [x] **Viral Hooks:** Uses proven high-CTR titles.
+*   [x] **Dynamic Link:** Change products without touching code.
+*   [x] **Volume:** 3 uploads/day on autopilot.
