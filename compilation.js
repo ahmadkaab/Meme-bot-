@@ -1,11 +1,14 @@
 require('dotenv').config();
 const fs = require('fs');
-const path = require('path'); // Added missing path import
+const path = require('path');
 const { google } = require('googleapis');
 const ffmpeg = require('fluent-ffmpeg');
 
-// ⚠️ REMOVED static binaries to prevent GitHub Action crashes.
-// We rely 100% on 'sudo apt-get install ffmpeg' in the workflow.
+// ✅ Local Mode: Use ffmpeg-static (It works on your PC!)
+const ffmpegPath = require('ffmpeg-static');
+const ffprobePath = require('ffprobe-static');
+ffmpeg.setFfmpegPath(ffmpegPath);
+ffmpeg.setFfprobePath(ffprobePath.path);
 
 const DB_FILE = './db.json';
 const OUTPUT_FILE = './compilation_final.mp4';
