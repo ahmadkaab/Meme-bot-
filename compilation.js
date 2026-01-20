@@ -1,17 +1,11 @@
 require('dotenv').config();
 const fs = require('fs');
+const path = require('path'); // Added missing path import
 const { google } = require('googleapis');
 const ffmpeg = require('fluent-ffmpeg');
 
-// Try static, fallback to system
-try {
-    const ffmpegPath = require('ffmpeg-static');
-    const ffprobePath = require('ffprobe-static');
-    ffmpeg.setFfmpegPath(ffmpegPath);
-    ffmpeg.setFfprobePath(ffprobePath.path);
-} catch (e) {
-    console.log("⚠️ Using system FFmpeg");
-}
+// ⚠️ REMOVED static binaries to prevent GitHub Action crashes.
+// We rely 100% on 'sudo apt-get install ffmpeg' in the workflow.
 
 const DB_FILE = './db.json';
 const OUTPUT_FILE = './compilation_final.mp4';
