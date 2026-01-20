@@ -1,4 +1,9 @@
 node_modules/
 .env
 temp_video.mp4
+temp_frame.jpg
 get_token.js
+ig_state.json
+*.zip
+
+client_secret*.json

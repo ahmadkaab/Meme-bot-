@@ -2,15 +2,21 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const ffmpeg = require('fluent-ffmpeg');
-const links = require('./links.json');
-const viralTitles = require('./titles.json');
+const ffmpegPath = require('ffmpeg-static');
+const ffprobe = require('ffprobe-static');
+
+ffmpeg.setFfmpegPath(ffmpegPath);
+ffmpeg.setFfprobePath(ffprobe.path);
+
+const { IgApiClient } = require('instagram-private-api');
+// const links = require('./links.json'); // Removed in favor of Env Var
 
 // --- Configuration ---
 const DB_FILE = './db.json';
 const TEMP_FILE = './temp_video.mp4';
 const TEMP_FRAME = './temp_frame.jpg';
+const IG_STATE_FILE = './ig_state.json'; // To save login session
 const AFFILIATE_TAG = 'meme067-21';
 
 // Initialize Google Auth
@@ -24,8 +30,8 @@ oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN })
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
-// Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Initialize Instagram
+const ig = new IgApiClient();
 
 // --- Helpers ---
 
@@ -38,76 +44,113 @@ function saveDb(db) {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }
 
-function getSmartLink(category) {
-    // Normalize category
-    const validCategories = Object.keys(links);
-    const cat = validCategories.includes(category) ? category : 'general';
+function getAffiliateLink() {
+    const rawLink = process.env.AFFILIATE_LINK || "https://www.amazon.com";
     
-    // Pick random item from category
-    const categoryItems = links[cat] || links['general'];
-    const item = categoryItems[Math.floor(Math.random() * categoryItems.length)];
-
-    // Clean and Tag Link
-    let cleanLink = item.link.split('?')[0]; // Remove existing query params
-    let taggedLink = `${cleanLink}?tag=${AFFILIATE_TAG}`;
+    // Simple logic: If it's Amazon, ensure tag is present. 
+    // If user provides a full link with tag in secret, this might double-tag, 
+    // but for safety let's just use what they provide if it looks like a full tracking link.
     
-    return { ...item, link: taggedLink };
+    if (rawLink.includes('amazon') && !rawLink.includes('tag=')) {
+        return rawLink.includes('?') ? `${rawLink}&tag=${AFFILIATE_TAG}` : `${rawLink}?tag=${AFFILIATE_TAG}`;
+    }
+    
+    return rawLink;
 }
 
-// --- AI Functions ---
+function getRandomTitle() {
+    const titles = [
+        "Wait for the end... 💀",
+        "Funny Memes 2026 😂",
+        "You won't believe this... 😳",
+        "Best Meme Compilation 2026 🔥",
+        "Try not to laugh 😆",
+        "Unexpected ending... 😱",
+        "Only in 2026... 💀",
+        "Meme Review 👏👏",
+        "Daily Dose of Memes 💊",
+        "Viral Shorts 2026 📈"
+    ];
+    return titles[Math.floor(Math.random() * titles.length)];
+}
+
+// --- Instagram Functions ---
+
+async function loginToInstagram() {
+    console.log('📸 Logging into Instagram...');
+    ig.state.generateDevice(process.env.IG_USERNAME);
+
+    // Load existing session if available
+    if (fs.existsSync(IG_STATE_FILE)) {
+        console.log('🔄 Loading IG session from file...');
+        await ig.state.deserialize(JSON.parse(fs.readFileSync(IG_STATE_FILE, 'utf8')));
+    }
+
+    try {
+        // Check if session is valid by simulating a pre-login call
+        await ig.account.currentUser();
+        console.log('✅ IG Session valid.');
+    } catch (e) {
+        console.log('⚠️ IG Session invalid or expired. Logging in again...');
+        try {
+            // Simulate pre-login flow
+            await ig.simulate.preLoginFlow();
+            const auth = await ig.account.login(process.env.IG_USERNAME, process.env.IG_PASSWORD);
+            console.log(`✅ Logged in as ${auth.username}`);
+
+            // Save session
+            const serialized = await ig.state.serialize();
+            delete serialized.constants; // specific to the library, clean it up
+            fs.writeFileSync(IG_STATE_FILE, JSON.stringify(serialized));
+            
+            // Post-login flow
+            process.nextTick(async () => await ig.simulate.postLoginFlow());
+        } catch (loginError) {
+            console.error('❌ Instagram Login Failed:', loginError.message);
+            // If it's a checkpoint error, we might need manual intervention, but for now we just fail gracefully.
+            if (loginError.message.includes('checkpoint')) {
+                console.error('🚨 IG CHECKPOINT REQUIRED! Log in manually on a phone to approve this device.');
+            }
+            throw loginError;
+        }
+    }
+}
+
+async function uploadToInstagram(videoPath, coverPath, caption) {
+    console.log('📸 Uploading to Instagram Reels...');
+    try {
+        const videoBuffer = fs.readFileSync(videoPath);
+        const coverBuffer = fs.readFileSync(coverPath);
+
+        const publishResult = await ig.publish.video({
+            video: videoBuffer,
+            coverImage: coverBuffer,
+            caption: caption,
+        });
+
+        console.log('✅ Instagram Upload Success:', publishResult.status);
+        return publishResult;
+    } catch (error) {
+        console.error('❌ Instagram Upload Failed:', error.message);
+        return null;
+    }
+}
+
+// --- Video Functions ---
 
 async function extractFrame(videoPath) {
-    console.log('🖼️ Extracting frame for AI analysis...');
+    console.log('🖼️ Extracting frame for cover...');
     return new Promise((resolve, reject) => {
         ffmpeg(videoPath)
             .screenshots({
                 timestamps: ['50%'], 
                 filename: 'temp_frame.jpg',
                 folder: '.',
-                size: '?x720' 
+                size: '?x720'
             })
             .on('end', () => resolve(TEMP_FRAME))
             .on('error', (err) => reject(err));
     });
-}
-
-async function getGeminiAnalysis(imagePath) {
-    console.log('🧠 Asking Gemini 3 Flash to analyze...');
-    try {
-        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
-        
-        const imageBuffer = fs.readFileSync(imagePath);
-        const imagePart = {
-            inlineData: {
-                data: imageBuffer.toString("base64"),
-                mimeType: "image/jpeg",
-            },
-        };
-
-        const prompt = `
-        Look at this meme video frame. 
-        1. Write a generic, high-click, viral YouTube Shorts title (max 50 chars). 
-        2. Give me 5 viral hashtags.
-        3. CATEGORIZE this image into exactly one of these: "tech", "pets", "home", "funny", "general".
-        
-        Return JSON format: {"title": "...", "tags": "...", "category": "..."}
-        `;
-
-        const result = await model.generateContent([prompt, imagePart]);
-        const response = await result.response;
-        const text = response.text();
-        
-        const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(jsonStr);
-
-    } catch (error) {
-        console.error("⚠️ Gemini Failed:", error.message);
-        return { 
-            title: "Wait for the end... 💀", 
-            tags: "#shorts #meme #funny #viral",
-            category: "general"
-        };
-    }
 }
 
 async function postComment(videoId, commentText) {
@@ -133,34 +176,27 @@ async function postComment(videoId, commentText) {
 // --- Core Functions ---
 
 async function getNewFiles() {
-    console.log('🔍 Checking Drive for new files (recursively)...');
+    console.log(`🔍 Checking Drive for new files in folder: ${process.env.DRIVE_FOLDER_ID}...`);
     const db = getDb();
-    const mainFolderId = process.env.DRIVE_FOLDER_ID;
-
-    let folders = [mainFolderId];
-    try {
-        const folderRes = await drive.files.list({
-            q: `'${mainFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-            fields: 'files(id, name)',
-            pageSize: 100 
-        });
-        if (folderRes.data.files) {
-            folders = folders.concat(folderRes.data.files.map(f => f.id));
-        }
-    } catch (e) { console.error(e.message); }
+    const folderId = process.env.DRIVE_FOLDER_ID;
 
     let allFiles = [];
-    for (const folderId of folders) {
-        try {
-            const res = await drive.files.list({
-                q: `'${folderId}' in parents and mimeType contains 'video/' and trashed = false`,
-                fields: 'files(id, name, mimeType)',
-                pageSize: 50
-            });
-            if (res.data.files) allFiles = allFiles.concat(res.data.files);
-        } catch (e) {}
+    try {
+        // Query specifically for files that have the target folder in their parents
+        const res = await drive.files.list({
+            q: `'${folderId}' in parents and mimeType contains 'video/' and trashed = false`,
+            fields: 'files(id, name, mimeType)',
+            pageSize: 100
+        });
+        
+        if (res.data.files) {
+            allFiles = res.data.files;
+        }
+    } catch (e) {
+        console.error("❌ Drive List Error:", e.message);
     }
 
+    console.log(`📂 Video files found in folder: ${allFiles.length}`);
     return allFiles.filter(f => !db.uploaded_files.includes(f.id));
 }
 
@@ -177,7 +213,7 @@ async function downloadFile(fileId) {
 }
 
 async function uploadToYoutube(filePath, title, description, tags) {
-    console.log(`🚀 Uploading: "${title}"`);
+    console.log(`🚀 Uploading to YouTube: "${title}"`);
     try {
         const res = await youtube.videos.insert({
             part: 'snippet,status',
@@ -192,10 +228,10 @@ async function uploadToYoutube(filePath, title, description, tags) {
             },
             media: { body: fs.createReadStream(filePath) }
         });
-        console.log(`✅ Success! ID: ${res.data.id}`);
+        console.log(`✅ YouTube Success! ID: ${res.data.id}`);
         return res.data.id;
     } catch (error) {
-        console.error('❌ Upload Failed:', error.message);
+        console.error('❌ YouTube Upload Failed:', error.message);
         return null;
     }
 }
@@ -212,40 +248,59 @@ async function run() {
         console.log(`🎬 Processing: ${file.name}`);
         await downloadFile(file.id);
 
-        // AI Magic
-        let title = "Funny Meme 😂";
-        let tags = "#shorts #meme";
-        let category = "general";
+        // --- SEO & Metadata (NO AI) ---
         
+        // Ensure frame is extracted for IG Cover
         try {
             await extractFrame(TEMP_FILE);
-            const aiData = await getGeminiAnalysis(TEMP_FRAME);
-            title = aiData.title;
-            tags = aiData.tags;
-            category = aiData.category;
-            console.log(`🧠 AI Category: ${category}`);
         } catch (e) {
-            console.error("AI Step skipped due to error, using defaults.");
+            console.error("❌ Frame extraction failed:", e.message);
         }
 
-        const affiliate = getSmartLink(category);
+        const title = getRandomTitle();
+        const tags = "#shorts #memes #funny #viral #humor #fyp #2026";
+        const affiliateLink = getAffiliateLink();
 
         const description = `
 ${title}
 
-👇 LINK IN COMMENTS 👇
+Daily Funny Memes and best viral clips! 
+Subscribe for more.
+
+👇 BEST GADGETS HERE 👇
+${affiliateLink}
 
 ${tags}
         `.trim();
 
+        // 1. YouTube Upload
         const videoId = await uploadToYoutube(TEMP_FILE, title, description, tags);
 
         if (videoId) {
-            await postComment(videoId, `🔥 GET IT HERE: ${affiliate.link}`);
+            await postComment(videoId, `🔥 GET IT HERE: ${affiliateLink}`);
             
             const db = getDb();
             db.uploaded_files.push(file.id);
             saveDb(db);
+        }
+
+        // 2. Instagram Upload
+        if (process.env.IG_USERNAME && process.env.IG_PASSWORD) {
+            try {
+                await loginToInstagram();
+                const igCaption = `Memes until i got enough followers.😤\nLink in bio 🔗\n\n#memes #funny #viral`;
+                
+                // IG REQUIRES a cover image. We use the frame we extracted.
+                if (fs.existsSync(TEMP_FRAME)) {
+                    await uploadToInstagram(TEMP_FILE, TEMP_FRAME, igCaption);
+                } else {
+                    console.error("❌ Skipping IG: Frame extraction failed (no cover image available)");
+                }
+            } catch (e) {
+                console.error("⚠️ Instagram error:", e.message);
+            }
+        } else {
+            console.log("⚠️ Skipping Instagram: Missing IG_USERNAME or IG_PASSWORD in .env");
         }
 
         if (fs.existsSync(TEMP_FILE)) fs.unlinkSync(TEMP_FILE);

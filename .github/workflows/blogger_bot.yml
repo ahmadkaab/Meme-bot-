@@ -2,44 +2,39 @@ name: Meme Bot Automation
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Runs every 6 hours
-  workflow_dispatch: # Allows you to run it manually from GitHub UI
+    - cron: '0 */8 * * *' # Runs every 8 hours (3 times a day)
+  workflow_dispatch:
 
 jobs:
-  run-bot:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+    - uses: actions/checkout@v2
 
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v2
       with:
         node-version: '20'
 
-    - name: Install dependencies
+    - name: Install Dependencies
       run: npm install
-
-    - name: Install FFmpeg
-      run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
     - name: Run Bot
       env:
         GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
         GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
         GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-        GOOGLE_REDIRECT_URI: "http://localhost:3000/oauth2callback"
         DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         IG_USERNAME: ${{ secrets.IG_USERNAME }}
         IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
+        AFFILIATE_LINK: ${{ secrets.AFFILIATE_LINK }}
       run: node index.js
 
-    - name: Commit & Push DB changes
-      run: |
-        git config --global user.name 'Meme Bot'
-        git config --global user.email 'bot@noreply.github.com'
-        git add db.json
-        # Only commit if db.json actually changed
-        git diff --quiet && git diff --staged --quiet || (git commit -m "Update upload history [skip ci]" && git push)
+    - name: Commit & Push Changes
+      uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: Automated upload
+        branch: main
+        file_pattern: db.json ig_state.json
