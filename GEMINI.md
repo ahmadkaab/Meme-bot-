@@ -25,6 +25,7 @@
 ## 📂 Key Files
 
 *   **`index.js`**: The main bot logic. Handles random selection and multi-platform upload.
+*   **`get_refresh_token.js`**: Utility script to automatically regenerate Google OAuth refresh tokens.
 *   **`db.json`**: The memory bank. Tracks uploaded file IDs to avoid duplicates.
 *   **`.github/workflows/blogger_bot.yml`**: The automation schedule.
 
@@ -42,6 +43,13 @@
     1.  Log in to Instagram on your phone.
     2.  Approve the "Was this you?" notification.
     3.  Re-run the bot manually.
+
+### How to Refresh Google Credentials
+If the bot fails with "Invalid Credentials" or "Token Expired":
+1.  Run `node get_refresh_token.js` locally.
+2.  A browser window will open. Login and allow access.
+3.  Copy the new token printed in the terminal.
+4.  Update the **`GOOGLE_REFRESH_TOKEN`** secret in GitHub.
 
 ---
 

@@ -2,7 +2,7 @@ name: Meme Bot Automation
 
 on:
   schedule:
-    - cron: '0 */8 * * *' # Runs every 8 hours (3 times a day)
+    - cron: "0 */12 * * *" # Runs every 12 hours (2 times a day)
   workflow_dispatch:
 
 jobs:
@@ -10,31 +10,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '20'
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "20"
 
-    - name: Install Dependencies
-      run: npm install
+      - name: Install Dependencies
+        run: npm install
 
-    - name: Run Bot
-      env:
-        GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-        GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-        GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
-        GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-        DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
-        IG_USERNAME: ${{ secrets.IG_USERNAME }}
-        IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
-        AFFILIATE_LINK: ${{ secrets.AFFILIATE_LINK }}
-      run: node index.js
+      - name: Run Bot
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          IG_USERNAME: ${{ secrets.IG_USERNAME }}
+          IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
+          AFFILIATE_LINK: ${{ secrets.AFFILIATE_LINK }}
+        run: node index.js
 
-    - name: Commit & Push Changes
-      uses: stefanzweifel/git-auto-commit-action@v4
-      with:
-        commit_message: Automated upload
-        branch: main
-        file_pattern: db.json ig_state.json
+      - name: Commit & Push Changes
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: Automated upload
+          branch: main
+          file_pattern: db.json ig_state.json
